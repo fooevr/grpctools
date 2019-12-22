@@ -1,0 +1,30 @@
+using com.google.protobuf;
+/*
+{% for comm in data.Comment %}
+ *{{comm }}
+{% endfor %}
+ */
+namespace {{data.CsNamespace}}
+{
+    {% for cls in data.Messages %}
+    ///<summary>
+    {% for comm in cls.Comment%}
+    ///{{comm}}
+    {% endfor %}
+    ///</summary>
+    class {{cls.Name}}
+    {
+        #region 消息字段
+        {% for field in cls.Fields%}
+        ///<summary>
+        {% for comm in field.Comment%}
+        ///{{comm}}
+        {% endfor %}
+        ///</summary>
+        public {{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%} {{field.Name}} {get; set;}
+
+        {% endfor %}
+        #endregion
+    }
+    {% endfor %}
+}

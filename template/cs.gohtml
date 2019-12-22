@@ -1,0 +1,19 @@
+using com.google.protobuf;
+/// <summary>
+{{range .Comment -}}
+/// {{.}}
+{{- end}}
+///</summary>
+namespace {{.CsNamespace}}
+{ {{range .Messages}}
+    public class {{.Name}}
+    { {{range $field := .Fields}}
+        /// <summary>
+        {{range .Comment -}}
+            /// {{.}}
+        {{- end}}
+        ///</summary>
+        {{if ne $field.FieldType 2}}public {{$field.CsType}} {{$field.Name}} {get; set;}{{else}}public MapCollection<{{$field.CsKeyType}}, {{$field.CsType}}> {{$field.Name}} {get; set;}
+    {{end}}{{end}}
+    }
+{{end}} }
