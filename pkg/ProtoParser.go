@@ -89,7 +89,7 @@ func GenerateCSharp(files map[string]*desc.FileDescriptor, language string) []*F
 			Comment:      getComment(fileDesc.GetSourceInfo()),
 		}
 		if file.CsNamespace == "" {
-			file.CsNamespace = fileDesc.GetPackage()
+			file.CsNamespace = namespaceConverter(fileDesc.GetPackage(), "cs")
 		}
 		if file.JavaPackage == "" {
 			file.JavaPackage = fileDesc.GetPackage()
@@ -103,7 +103,7 @@ func GenerateCSharp(files map[string]*desc.FileDescriptor, language string) []*F
 
 		for _, messageDesc := range fileDesc.GetMessageTypes() {
 			msg := &Message{
-				Name:         messageDesc.GetName(),
+				Name:         classNameConverter(messageDesc.GetName(), language),
 				Fields:       []*Field{},
 				Suffix:       viper.GetString("suffix"),
 				desc:         messageDesc,
@@ -122,25 +122,26 @@ func GenerateCSharp(files map[string]*desc.FileDescriptor, language string) []*F
 		for _, msg := range file.Messages {
 			for _, fieldDesc := range msg.desc.GetFields() {
 				field := &Field{
-					Name:    fieldDesc.GetName(),
+					Name:    classNameConverter(fieldDesc.GetName(), language),
 					Number:  fieldDesc.GetNumber(),
 					Comment: getComment(fieldDesc.GetSourceInfo()),
 				}
 				if fieldDesc.IsMap() {
+					if fieldDesc.GetMapValueType().GetMessageType() != nil && fieldDesc.GetMapValueType().GetMessageType().GetFile().GetPackage() == "google.protobuf" {
+						field.Nullable = true
+						field.WrapperType = fieldDesc.GetMapValueType().GetMessageType().GetName()
+					}
 					switch language {
 					case "cs":
 						field.CsKeyType, _ = getFieldTypeName(fieldDesc.GetMapKeyType(), fqns, language)
 						field.CsType, field.CsMessageType = getFieldTypeName(fieldDesc.GetMapValueType(), fqns, language)
-						if fieldDesc.GetMessageType() != nil && fieldDesc.GetMessageType().GetFile().GetPackage() == "com.google.protobuf" {
-							field.Nullable = true
-						}
 					}
 					field.FieldType = FieldType_Map
 				} else {
 					if fieldDesc.IsRepeated() {
 						field.FieldType = FieldType_Repeated
 					} else if fieldDesc.GetMessageType() != nil {
-						if fieldDesc.GetMessageType().GetFile().GetPackage() == "com.google.protobuf" {
+						if fieldDesc.GetMessageType().GetFile().GetPackage() == "google.protobuf" {
 							field.FieldType = FieldType_Value
 							field.Nullable = true
 							field.WrapperType = fieldDesc.GetMessageType().GetName()
@@ -168,14 +169,14 @@ var typeMap = map[descriptor.FieldDescriptorProto_Type]map[string]string{
 	descriptor.FieldDescriptorProto_TYPE_BYTES:  {"cs": "byte[]"},
 	descriptor.FieldDescriptorProto_TYPE_DOUBLE: {"cs": "double"},
 	descriptor.FieldDescriptorProto_TYPE_FLOAT:  {"cs": "float"},
-	descriptor.FieldDescriptorProto_TYPE_INT32:  {"cs": "int"},
-	descriptor.FieldDescriptorProto_TYPE_INT64:  {"cs": "long"},
+	descriptor.FieldDescriptorProto_TYPE_INT32:  {"cs": "Int32"},
+	descriptor.FieldDescriptorProto_TYPE_INT64:  {"cs": "Int64"},
 	descriptor.FieldDescriptorProto_TYPE_STRING: {"cs": "string"},
 }
 
 func getFieldTypeName(fieldDesc *desc.FieldDescriptor, fqns map[string]*Message, language string) (string, string) {
 	if fieldDesc.GetMessageType() != nil {
-		if fieldDesc.GetMessageType().GetFile().GetPackage() == "com.google.protobuf" {
+		if fieldDesc.GetMessageType().GetFile().GetPackage() == "google.protobuf" {
 			return typeMap[fieldDesc.GetMessageType().GetFields()[0].GetType()][language], typeMap[fieldDesc.GetMessageType().GetFields()[0].GetType()][language]
 		} else {
 			msg := fqns[fieldDesc.GetMessageType().GetFullyQualifiedName()]
@@ -204,4 +205,26 @@ func getComment(si *descriptor.SourceCodeInfo_Location) []string {
 	}
 	result = append(result, strings.Trim(strings.ReplaceAll(si.GetTrailingComments(), "\r\n", "\n"), "\n"))
 	return result
+}
+
+// cs: com.variflight.Data_ser_vice.test -> Com.Variflight.DataSerVice.Test
+func namespaceConverter(source string, language string) string {
+	if language == "cs" {
+		return strings.ReplaceAll(strings.Title(strings.ReplaceAll(source, "_", "-")), "-", "")
+	}
+	return source
+}
+
+func classNameConverter(source string, language string) string {
+	if language == "cs" {
+		return source
+	}
+	return source
+}
+
+func fieldNameConverter(source string, language string) string {
+	if language == "cs" {
+		return strings.ReplaceAll(strings.Title(strings.ReplaceAll(source, "_", "-")), "-", "")
+	}
+	return source
 }

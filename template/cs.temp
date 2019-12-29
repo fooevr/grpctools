@@ -1,10 +1,10 @@
-using com.google.protobuf;
 using System;
 using System.ComponentModel;
-using com.variflight.dataservice;
-using com.variflight.middleware.gateway.cache;
 using System.Collections.ObjectModel;
-
+using com.variflight.dataservice.cs;
+using com.variflight.dataservice;
+using Google.Protobuf.WellKnownTypes;
+using Google.Protobuf;
 
 /*
 {% for comm in data.Comment %}
@@ -20,7 +20,7 @@ namespace {{data.CsNamespace}}{% if data.Suffix != "" %}.{{data.Suffix}}
     ///{{comm}}
     {% endfor %}
     ///</summary>
-    public class {{cls.Name}} : DAO<{{data.CsNamespace}}.{{cls.Name}}>
+    public class {{cls.Name}} : DAO
     {
         #region 消息字段
         {% for field in cls.Fields%}
@@ -30,13 +30,13 @@ namespace {{data.CsNamespace}}{% if data.Suffix != "" %}.{{data.Suffix}}
         {% endfor %}
         ///</summary>
         {% if field.FieldType == 0%}
-        public {{field.CsMessageType}} {{field.Name}} {get; set;}
+        public {{field.CsType}} {{field.Name}} {get; set;}
         {% elif field.FieldType == 1 %}
-        public {{field.CsMessageType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%} {{field.Name}} {get; set;}
+        public {{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%} {{field.Name}} {get; set;}
         {% elif field.FieldType == 2 %}
-        public MapCollection<{{field.CsKeyType}}, {{field.CsMessageType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%}> {{field.Name}} {get; set;} = new MapCollection<{{field.CsKeyType}}, {{field.CsMessageType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%}>();
+        public MapCollection<{{field.CsKeyType}}, {{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%}, {{field.CsMessageType}}> {{field.Name}} {get; set;} = new MapCollection<{{field.CsKeyType}}, {{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%}, {{field.CsMessageType}}>();
         {% elif field.FieldType == 3 %}
-        public ListConnection<{{field.CsMessageType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%}> {{field.Name}} {get; set;} = new ListConnection<{{field.CsMessageType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%}>();
+        public ListCollection<{{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%}, {{field.CsMessageType}}> {{field.Name}} {get; set;} = new ListCollection<{{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%}, {{field.CsMessageType}}>();
         {%endif%}
         {% endfor %}
         #endregion
@@ -44,15 +44,42 @@ namespace {{data.CsNamespace}}{% if data.Suffix != "" %}.{{data.Suffix}}
 
         public event PropertyChangedEventHandler PropertyChanged;
 
-        public void MergeFromMessage({{data.CsNamespace}}.{{cls.Name}} message, ChangeMeta cm)
+        public void MergeFromMessage(IMessage message, bool full, ChangeDesc cm)
         {
-            foreach(var field in com.variflight.test.Descriptor.Fields.InFieldNumberOrder())
+            for (var idx = 0; idx < {{data.CsNamespace}}.{{cls.Name}}.Descriptor.Fields.InFieldNumberOrder().Count; idx++)
             {
-                var isCreate = cm.Fields.ContainsKey(field.FieldNumber) && cm.Fields[field.FieldNumber].Type == ChangeMeta.Types.ChangeType.Created;
-                var isDelete = cm.Fields.ContainsKey(field.FieldNumber) && cm.Fields[field.FieldNumber].Type == ChangeMeta.Types.ChangeType.Deleted;
-                var isUpdate = field.Accessor.HasValue(message) || (cm.Fields.ContainsKey(field.FieldNumber) && cm.Fields[field.FieldNumber].Type == ChangeMeta.Types.ChangeType.Updated);
-                var isUnchange = !isCreate && !isDelete && !isUpdate;
-                if (isUnchange)
+                var field = {{data.CsNamespace}}.{{cls.Name}}.Descriptor.Fields.InFieldNumberOrder()[idx];
+                var isCreate = cm != null && cm.FieldTags.ToByteArray()[(int)Math.Floor(idx / 4.0)] << ((idx % 4) * 2) == (int)ChangeType.Created;
+                var isDelete = cm != null && cm.FieldTags.ToByteArray()[(int)Math.Floor(idx / 4.0)] << ((idx % 4) * 2) == (int)ChangeType.Deleted;
+                var isUpdate = cm != null && (cm.FieldTags.ToByteArray()[(int)Math.Floor(idx / 4.0)] << ((idx % 4) * 2) == (int)ChangeType.Updated);
+                ChangeDesc change = null;
+                if (cm != null && cm.ChangeTags != null)
+                {
+                    if ((cm.ChangeTags.ToByteArray()[(int)Math.Floor(idx/8.0)] >> (7 - (idx % 8)) & 0b00000001) == 0b1)
+                    {
+                        var fieldIndex = 0;
+                        for (var i = 0; i < idx; i++)
+                        {
+                            if ((cm.ChangeTags.ToByteArray()[(int)Math.Floor(i / 8.0)] >> (7 - (i % 8)) & 0b00000001) == 0b1)
+                            {
+                                fieldIndex++;
+                            }
+                        }
+                        change = cm.FieldsChangeDescs[fieldIndex];
+                    }
+                }
+                if (full)
+                {
+                    isCreate = true;
+                    isDelete = false;
+                    isUpdate = false;
+                }
+                var isUnchanged = !isCreate && !isDelete && !isUpdate;
+                if (isUnchanged)
+                {
+                    continue;
+                }
+                if (isDelete)
                 {
                     {%for field in cls.Fields%}
                     if (field.FieldNumber == {{field.Number}})
@@ -68,26 +95,24 @@ namespace {{data.CsNamespace}}{% if data.Suffix != "" %}.{{data.Suffix}}
                     {%endfor%}
                     continue;
                 }
-                if (isDelete)
-                {
-                    continue;
-                }
                 if (isCreate)
                 {
+                    if (field.Accessor.GetValue(message) == null)
+                    {
+                        continue;
+                    }
                     {%for field in cls.Fields%}
                     if (field.FieldNumber == {{field.Number}})
                     {
                         {% if field.FieldType == 0 %}
                         var temp = new {{field.CsType}}();
-                        temp.MergeFromMessage(field.Accessor.GetValue(message) as {{field.CsMessageType}}, new ChangeMeta { Type = ChangeMeta.Types.ChangeType.Created });
+                        temp.MergeFromMessage(field.Accessor.GetValue(message) as {{field.CsMessageType}}, full, null);
+                        this.{{field.Name}} = temp;
                         {% elif field.FieldType == 1 %}
-                        {% if field.Nullable %}
-                        this.{{field.Name}} = (field.Accessor.GetValue(message) as {{field.WrapperType}}).Value;
-                        {% else %}
-                        this.{{field.Name}} = field.Accessor.GetValue(message) as {{field.CsType}};
-                        {% endif %}
+                        this.{{field.Name}} = ({{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%})field.Accessor.GetValue(message);
                         {% elif field.FieldType == 2 || field.FieldType == 3%}
                         this.{{field.Name}}.Clear();
+                        this.{{field.Name}}.MergeFromMessage(message, field, true, null);
                         {%endif%}
                     }
                     {%endfor%}
@@ -95,6 +120,30 @@ namespace {{data.CsNamespace}}{% if data.Suffix != "" %}.{{data.Suffix}}
                 }
                 if (isUpdate)
                 {
+                    {%for field in cls.Fields%}
+                    if (field.FieldNumber == {{field.Number}})
+                    {
+                        {% if field.FieldType == 0 %}
+                        var temp = this.{{field.Name}};
+                        if (temp == null)
+                        {
+                            temp = new {{field.CsType}}();
+                        }
+                        temp.MergeFromMessage(field.Accessor.GetValue(message) as {{field.CsMessageType}}, full, change);
+                        if (this.{{field.Name}} != temp)
+                        {
+                            this.{{field.Name}} = temp;
+                        }
+                        {% elif field.FieldType == 1 %}
+                        this.{{field.Name}} = ({{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%})field.Accessor.GetValue(message);
+                        {% elif field.FieldType == 2 %}
+                        this.{{field.Name}}.Clear();
+                        this.{{field.Name}}.MergeFromMessage(message, field, full, change);
+                        {% elif field.FieldType == 3 %}
+                        this.{{field.Name}}.MergeFromMessage(message, field, true, null);
+                        {%endif%}
+                    }
+                    {%endfor%}
                     continue;
                 }
             }
