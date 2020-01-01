@@ -1,7 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Collections.ObjectModel;
-using com.variflight.dataservice.cs;
+using com.variflight.dataservice.client;
 using com.variflight.dataservice;
 using Google.Protobuf.WellKnownTypes;
 using Google.Protobuf;
@@ -49,25 +49,11 @@ namespace {{data.CsNamespace}}{% if data.Suffix != "" %}.{{data.Suffix}}
             for (var idx = 0; idx < {{data.CsNamespace}}.{{cls.Name}}.Descriptor.Fields.InFieldNumberOrder().Count; idx++)
             {
                 var field = {{data.CsNamespace}}.{{cls.Name}}.Descriptor.Fields.InFieldNumberOrder()[idx];
-                var isCreate = cm != null && cm.FieldTags.ToByteArray()[(int)Math.Floor(idx / 4.0)] << ((idx % 4) * 2) == (int)ChangeType.Created;
-                var isDelete = cm != null && cm.FieldTags.ToByteArray()[(int)Math.Floor(idx / 4.0)] << ((idx % 4) * 2) == (int)ChangeType.Deleted;
-                var isUpdate = cm != null && (cm.FieldTags.ToByteArray()[(int)Math.Floor(idx / 4.0)] << ((idx % 4) * 2) == (int)ChangeType.Updated);
-                ChangeDesc change = null;
-                if (cm != null && cm.ChangeTags != null)
-                {
-                    if ((cm.ChangeTags.ToByteArray()[(int)Math.Floor(idx/8.0)] >> (7 - (idx % 8)) & 0b00000001) == 0b1)
-                    {
-                        var fieldIndex = 0;
-                        for (var i = 0; i < idx; i++)
-                        {
-                            if ((cm.ChangeTags.ToByteArray()[(int)Math.Floor(i / 8.0)] >> (7 - (i % 8)) & 0b00000001) == 0b1)
-                            {
-                                fieldIndex++;
-                            }
-                        }
-                        change = cm.FieldsChangeDescs[fieldIndex];
-                    }
-                }
+
+                var isCreate = cm != null && (cm.FieldTags.ToByteArray()[(int)Math.Floor(idx / 4.0)] << ((idx % 4) * 2) & 0b11000000) == (int)ChangeType.Created;
+                var isDelete = cm != null && (cm.FieldTags.ToByteArray()[(int)Math.Floor(idx / 4.0)] << ((idx % 4) * 2) & 0b11000000) == (int)ChangeType.Deleted;
+                var isUpdate = cm != null && (cm.FieldTags.ToByteArray()[(int)Math.Floor(idx / 4.0)] << ((idx % 4) * 2) & 0b11000000) == (int)ChangeType.Updated;
+
                 if (full)
                 {
                     isCreate = true;
@@ -120,6 +106,22 @@ namespace {{data.CsNamespace}}{% if data.Suffix != "" %}.{{data.Suffix}}
                 }
                 if (isUpdate)
                 {
+                    ChangeDesc change = null;
+                    if (cm != null && cm.ChangeTags != null)
+                    {
+                        if ((cm.ChangeTags.ToByteArray()[(int)Math.Floor(idx/8.0)] >> (7 - (idx % 8)) & 0b00000001) == 0b1)
+                        {
+                            var fieldIndex = 0;
+                            for (var i = 0; i < idx; i++)
+                            {
+                                if ((cm.ChangeTags.ToByteArray()[(int)Math.Floor(i / 8.0)] >> (7 - (i % 8)) & 0b00000001) == 0b1)
+                                {
+                                    fieldIndex++;
+                                }
+                            }
+                            change = cm.FieldsChangeDescs[fieldIndex];
+                        }
+                    }
                     {%for field in cls.Fields%}
                     if (field.FieldNumber == {{field.Number}})
                     {
@@ -129,7 +131,14 @@ namespace {{data.CsNamespace}}{% if data.Suffix != "" %}.{{data.Suffix}}
                         {
                             temp = new {{field.CsType}}();
                         }
-                        temp.MergeFromMessage(field.Accessor.GetValue(message) as {{field.CsMessageType}}, full, change);
+                        if (message == null || (field.Accessor.GetValue(message) != null && field.Accessor.GetValue(message) is {{field.CsMessageType}}))
+                        {
+                            temp.MergeFromMessage(null, full, change);
+                        }
+                        else
+                        {
+                            temp.MergeFromMessage(field.Accessor.GetValue(message) as {{field.CsMessageType}}, full, change);
+                        }
                         if (this.{{field.Name}} != temp)
                         {
                             this.{{field.Name}} = temp;
@@ -137,9 +146,9 @@ namespace {{data.CsNamespace}}{% if data.Suffix != "" %}.{{data.Suffix}}
                         {% elif field.FieldType == 1 %}
                         this.{{field.Name}} = ({{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%})field.Accessor.GetValue(message);
                         {% elif field.FieldType == 2 %}
-                        this.{{field.Name}}.Clear();
                         this.{{field.Name}}.MergeFromMessage(message, field, full, change);
                         {% elif field.FieldType == 3 %}
+                        this.{{field.Name}}.Clear();
                         this.{{field.Name}}.MergeFromMessage(message, field, true, null);
                         {%endif%}
                     }
