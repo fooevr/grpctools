@@ -20,7 +20,7 @@ namespace {{data.CsNamespace}}{% if data.Suffix != "" %}.{{data.Suffix}}
     ///{{comm}}
     {% endfor %}
     ///</summary>
-    public class {{cls.Name}} : DAO
+    public class {{cls.Name}} : IDAO
     {
         #region 消息字段
         {% for field in cls.Fields%}
@@ -29,21 +29,32 @@ namespace {{data.CsNamespace}}{% if data.Suffix != "" %}.{{data.Suffix}}
         ///{{comm}}
         {% endfor %}
         ///</summary>
+
         {% if field.FieldType == 0%}
-        public {{field.CsType}} {{field.Name}} {get; set;}
+        private {{field.CsType}} _{{field.Name}};
+        public {{field.CsType}} {{field.Name}} { get { return _{{field.Name}}; } set { _{{field.Name}} = value; invokePropertyChanged("{{field.Name}}"); }}
         {% elif field.FieldType == 1 %}
-        public {{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%} {{field.Name}} {get; set;}
+        private {{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%} _{{field.Name}};
+        public {{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%} {{field.Name}} { get { return _{{field.Name}}; } set { _{{field.Name}} = value; invokePropertyChanged("{{field.Name}}"); }}
         {% elif field.FieldType == 2 %}
-        public MapCollection<{{field.CsKeyType}}, {{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%}, {{field.CsMessageType}}> {{field.Name}} {get; set;} = new MapCollection<{{field.CsKeyType}}, {{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%}, {{field.CsMessageType}}>();
+        private MapCollection<{{field.CsKeyType}}, {{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%}, {{field.CsMessageType}}> _{{field.Name}} = new MapCollection<{{field.CsKeyType}}, {{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%}, {{field.CsMessageType}}>();
+        public MapCollection<{{field.CsKeyType}}, {{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%}, {{field.CsMessageType}}> {{field.Name}} { get { return _{{field.Name}}; } set { _{{field.Name}} = value; invokePropertyChanged("{{field.Name}}"); }}
         {% elif field.FieldType == 3 %}
-        public ListCollection<{{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%}, {{field.CsMessageType}}> {{field.Name}} {get; set;} = new ListCollection<{{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%}, {{field.CsMessageType}}>();
+        private ListCollection<{{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%}, {{field.CsMessageType}}> _{{field.Name}} = new ListCollection<{{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%}, {{field.CsMessageType}}>();
+        public ListCollection<{{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%}, {{field.CsMessageType}}> {{field.Name}} { get { return _{{field.Name}}; } set { _{{field.Name}} = value; invokePropertyChanged("{{field.Name}}"); }}
         {%endif%}
         {% endfor %}
         #endregion
 
-
+        #region INotifyPropertyChanged
         public event PropertyChangedEventHandler PropertyChanged;
+        private void invokePropertyChanged(String proName)
+        {
+            this.PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(proName));
+        }
+        #endregion
 
+        #region Proto Parse
         public void MergeFromMessage(IMessage message, bool full, ChangeDesc cm)
         {
             for (var idx = 0; idx < {{data.CsNamespace}}.{{cls.Name}}.Descriptor.Fields.InFieldNumberOrder().Count; idx++)
@@ -92,7 +103,7 @@ namespace {{data.CsNamespace}}{% if data.Suffix != "" %}.{{data.Suffix}}
                     {
                         {% if field.FieldType == 0 %}
                         var temp = new {{field.CsType}}();
-                        temp.MergeFromMessage(field.Accessor.GetValue(message) as {{field.CsMessageType}}, full, null);
+                        temp.MergeFromMessage(field.Accessor.GetValue(message) as {{field.CsMessageType}}, true, null);
                         this.{{field.Name}} = temp;
                         {% elif field.FieldType == 1 %}
                         this.{{field.Name}} = ({{field.CsType}}{% if field.Nullable && field.CsType != "string" %}?{%endif%})field.Accessor.GetValue(message);
@@ -131,7 +142,7 @@ namespace {{data.CsNamespace}}{% if data.Suffix != "" %}.{{data.Suffix}}
                         {
                             temp = new {{field.CsType}}();
                         }
-                        if (message == null || (field.Accessor.GetValue(message) != null && field.Accessor.GetValue(message) is {{field.CsMessageType}}))
+                        if (message == null || (field.Accessor.GetValue(message) != null && !(field.Accessor.GetValue(message) is {{field.CsMessageType}})))
                         {
                             temp.MergeFromMessage(null, full, change);
                         }
@@ -157,6 +168,7 @@ namespace {{data.CsNamespace}}{% if data.Suffix != "" %}.{{data.Suffix}}
                 }
             }
         }
+        #endregion
     }
     {% endfor %}
 }
